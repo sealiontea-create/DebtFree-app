@@ -1085,201 +1085,307 @@
     function calculateSingleDebt() {
         console.log('Calculating single debt...');
         
-        const balance = parseFloat(document.getElementById('singleBalance').value) || 0;
-        const rate = parseFloat(document.getElementById('singleRate').value) || 0;
-        const minPayment = parseFloat(document.getElementById('singleMin').value) || 0;
-        const extraPayment = parseFloat(document.getElementById('singleExtra').value) || 0;
+        try {
+            const balance = parseFloat(document.getElementById('singleBalance').value) || 0;
+            const rate = parseFloat(document.getElementById('singleRate').value) || 0;
+            const minPayment = parseFloat(document.getElementById('singleMin').value) || 0;
+            const extraPayment = parseFloat(document.getElementById('singleExtra').value) || 0;
 
-        if (balance <= 0 || rate < 0 || minPayment <= 0) {
-            alert('Please enter valid debt information');
-            return;
+            // Enhanced validation
+            if (balance <= 0) {
+                throw new Error('Please enter a valid balance greater than $0');
+            }
+            if (rate < 0 || rate > 50) {
+                throw new Error('Please enter a valid interest rate between 0% and 50%');
+            }
+            if (minPayment <= 0) {
+                throw new Error('Please enter a minimum payment greater than $0');
+            }
+            if (extraPayment < 0) {
+                throw new Error('Extra payment cannot be negative');
+            }
+
+            const monthlyRate = rate / 100 / 12;
+            const totalPayment = minPayment + extraPayment;
+
+            // Check if minimum payment covers interest
+            const monthlyInterest = balance * monthlyRate;
+            if (minPayment <= monthlyInterest) {
+                throw new Error(`Minimum payment ($${minPayment}) must be greater than monthly interest ($${monthlyInterest.toFixed(2)})`);
+            }
+
+            const bonusPayments = getBonusPayments();
+            console.log('Single debt params:', { balance, rate, minPayment, extraPayment, totalPayment });
+
+            // Calculate with minimum payment only
+            const minOnlyResult = calculateDebtPayoff(balance, monthlyRate, minPayment, []);
+            
+            // Calculate with extra payment
+            const withExtraResult = calculateDebtPayoff(balance, monthlyRate, totalPayment, bonusPayments);
+
+            // Validate results
+            if (!minOnlyResult || !withExtraResult || minOnlyResult.months <= 0 || withExtraResult.months <= 0) {
+                throw new Error('Unable to calculate payoff schedule. Please check your inputs.');
+            }
+
+            const results = {
+                timeWithExtra: withExtraResult.months,
+                timeMinOnly: minOnlyResult.months,
+                totalInterestWithExtra: withExtraResult.totalInterest,
+                totalInterestMinOnly: minOnlyResult.totalInterest,
+                totalPaidWithExtra: withExtraResult.totalPaid,
+                totalPaidMinOnly: minOnlyResult.totalPaid,
+                monthlySavings: minOnlyResult.months > 0 ? (minOnlyResult.totalPaid - withExtraResult.totalPaid) / withExtraResult.months : 0,
+                schedule: withExtraResult.schedule
+            };
+
+            console.log('Single debt results:', results);
+            displayResults(results);
+            createCharts(results);
+            
+        } catch (error) {
+            console.error('Single debt calculation error:', error);
+            showUserError(error.message || 'Error in calculation. Please check your inputs.');
         }
-
-        const monthlyRate = rate / 100 / 12;
-        const totalPayment = minPayment + extraPayment;
-        const bonusPayments = getBonusPayments();
-
-        console.log('Single debt params:', { balance, rate, minPayment, extraPayment, totalPayment });
-
-        // Calculate with minimum payment only
-        const minOnlyResult = calculateDebtPayoff(balance, monthlyRate, minPayment, []);
-        
-        // Calculate with extra payment
-        const withExtraResult = calculateDebtPayoff(balance, monthlyRate, totalPayment, bonusPayments);
-
-        const results = {
-            timeWithExtra: withExtraResult.months,
-            timeMinOnly: minOnlyResult.months,
-            totalInterestWithExtra: withExtraResult.totalInterest,
-            totalInterestMinOnly: minOnlyResult.totalInterest,
-            totalPaidWithExtra: withExtraResult.totalPaid,
-            totalPaidMinOnly: minOnlyResult.totalPaid,
-            monthlySavings: (minOnlyResult.totalPaid - withExtraResult.totalPaid) / withExtraResult.months,
-            schedule: withExtraResult.schedule
-        };
-
-        console.log('Single debt results:', results);
-        displayResults(results);
-        createCharts(results);
     }
 
     function calculateMultiDebt() {
         console.log('Calculating multi debt...');
         
-        const validDebts = debts.filter(d => d.balance > 0 && d.rate >= 0 && d.minimum > 0);
-        
-        if (validDebts.length === 0) {
-            alert('Please add valid debt information');
-            return;
+        try {
+            const validDebts = debts.filter(d => d.balance > 0 && d.rate >= 0 && d.minimum > 0);
+            
+            if (validDebts.length === 0) {
+                throw new Error('Please add valid debt information in the My Debts tab');
+            }
+
+            const extraPayment = parseFloat(document.getElementById('totalExtra').value) || 0;
+            if (extraPayment < 0) {
+                throw new Error('Extra payment cannot be negative');
+            }
+
+            const bonusPayments = getBonusPayments();
+            console.log('Multi debt params:', { validDebts, extraPayment, bonusPayments });
+
+            // Validate each debt
+            for (let debt of validDebts) {
+                const monthlyRate = debt.rate / 100 / 12;
+                const monthlyInterest = debt.balance * monthlyRate;
+                if (debt.minimum <= monthlyInterest) {
+                    throw new Error(`${debt.name}: Minimum payment ($${debt.minimum}) must be greater than monthly interest ($${monthlyInterest.toFixed(2)})`);
+                }
+            }
+
+            // Calculate different strategies
+            const avalancheResult = calculateDebtStrategy(validDebts, extraPayment, 'avalanche', bonusPayments);
+            const snowballResult = calculateDebtStrategy(validDebts, extraPayment, 'snowball', bonusPayments);
+
+            if (!avalancheResult || !snowballResult) {
+                throw new Error('Unable to calculate debt strategies. Please check your inputs.');
+            }
+
+            const strategies = [
+                { name: 'Avalanche', ...avalancheResult, strategy: 'avalanche' },
+                { name: 'Snowball', ...snowballResult, strategy: 'snowball' }
+            ];
+
+            // Find best strategy
+            const bestStrategy = strategies.reduce((best, current) => 
+                current.totalInterest < best.totalInterest ? current : best
+            );
+
+            console.log('Strategy results:', strategies);
+            displayStrategyComparison(strategies, bestStrategy);
+
+            // Display results for selected strategy
+            const selectedResult = strategies.find(s => s.strategy === currentStrategy) || bestStrategy;
+            displayResults(selectedResult);
+            createCharts(selectedResult);
+            
+        } catch (error) {
+            console.error('Multi debt calculation error:', error);
+            showUserError(error.message || 'Error in calculation. Please check your inputs.');
         }
-
-        const extraPayment = parseFloat(document.getElementById('totalExtra').value) || 0;
-        const bonusPayments = getBonusPayments();
-
-        console.log('Multi debt params:', { validDebts, extraPayment, bonusPayments });
-
-        // Calculate different strategies
-        const avalancheResult = calculateDebtStrategy(validDebts, extraPayment, 'avalanche', bonusPayments);
-        const snowballResult = calculateDebtStrategy(validDebts, extraPayment, 'snowball', bonusPayments);
-
-        const strategies = [
-            { name: 'Avalanche', ...avalancheResult, strategy: 'avalanche' },
-            { name: 'Snowball', ...snowballResult, strategy: 'snowball' }
-        ];
-
-        // Find best strategy
-        const bestStrategy = strategies.reduce((best, current) => 
-            current.totalInterest < best.totalInterest ? current : best
-        );
-
-        console.log('Strategy results:', strategies);
-        displayStrategyComparison(strategies, bestStrategy);
-
-        // Display results for selected strategy
-        const selectedResult = strategies.find(s => s.strategy === currentStrategy) || bestStrategy;
-        displayResults(selectedResult);
-        createCharts(selectedResult);
     }
 
     function calculateDebtPayoff(balance, monthlyRate, payment, bonusPayments) {
-        let currentBalance = balance;
-        let totalInterest = 0;
-        let totalPaid = 0;
-        let month = 0;
-        const schedule = [];
+        try {
+            let currentBalance = balance;
+            let totalInterest = 0;
+            let totalPaid = 0;
+            let month = 0;
+            const schedule = [];
 
-        const bonusMap = {};
-        bonusPayments.forEach(bonus => {
-            bonusMap[bonus.month] = bonus.amount;
-        });
-
-        while (currentBalance > 0.01 && month < 1000) {
-            month++;
-            
-            const interestPayment = currentBalance * monthlyRate;
-            let principalPayment = Math.min(payment - interestPayment, currentBalance);
-            
-            // Add bonus payment if applicable
-            const bonusAmount = bonusMap[month] || 0;
-            principalPayment += bonusAmount;
-            
-            if (principalPayment < 0) {
-                // Payment doesn't cover interest
-                break;
+            const bonusMap = {};
+            if (bonusPayments && Array.isArray(bonusPayments)) {
+                bonusPayments.forEach(bonus => {
+                    if (bonus && bonus.month && bonus.amount) {
+                        bonusMap[bonus.month] = bonus.amount;
+                    }
+                });
             }
 
-            currentBalance -= principalPayment;
-            totalInterest += interestPayment;
-            totalPaid += payment + bonusAmount;
+            while (currentBalance > 0.01 && month < 1000) {
+                month++;
+                
+                const interestPayment = currentBalance * monthlyRate;
+                let principalPayment = Math.min(payment - interestPayment, currentBalance);
+                
+                // Add bonus payment if applicable
+                const bonusAmount = bonusMap[month] || 0;
+                principalPayment += bonusAmount;
+                
+                if (principalPayment < 0) {
+                    // Payment doesn't cover interest
+                    console.error('Payment too low to cover interest');
+                    break;
+                }
 
-            schedule.push({
-                month,
-                payment: payment + bonusAmount,
-                principal: principalPayment,
-                interest: interestPayment,
-                balance: Math.max(0, currentBalance)
-            });
+                currentBalance = Math.max(0, currentBalance - principalPayment);
+                totalInterest += interestPayment;
+                totalPaid += payment + bonusAmount;
 
-            if (currentBalance <= 0) break;
+                schedule.push({
+                    month,
+                    payment: payment + bonusAmount,
+                    principal: principalPayment,
+                    interest: interestPayment,
+                    balance: currentBalance
+                });
+
+                if (currentBalance <= 0) break;
+            }
+
+            return {
+                months: month,
+                totalInterest: Math.round(totalInterest * 100) / 100,
+                totalPaid: Math.round(totalPaid * 100) / 100,
+                schedule
+            };
+        } catch (error) {
+            console.error('Error in calculateDebtPayoff:', error);
+            return null;
         }
+    }
 
-        return {
-            months: month,
-            totalInterest: Math.round(totalInterest * 100) / 100,
-            totalPaid: Math.round(totalPaid * 100) / 100,
-            schedule
-        };
+    // Add user-friendly error display function
+    function showUserError(message) {
+        // Create a more user-friendly error display instead of alert
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            z-index: 10000;
+            max-width: 90%;
+            text-align: center;
+        `;
+        
+        errorDiv.innerHTML = `
+            <div style="color: #ef4444; font-weight: 600; margin-bottom: 10px;">⚠️ Calculation Error</div>
+            <div style="color: #374151; margin-bottom: 15px;">${message}</div>
+            <button onclick="this.parentElement.remove()" style="
+                background: #2563eb; 
+                color: white; 
+                border: none; 
+                padding: 8px 16px; 
+                border-radius: 6px; 
+                cursor: pointer;
+                font-weight: 600;
+            ">Close</button>
+        `;
+        
+        document.body.appendChild(errorDiv);
+        
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (errorDiv.parentElement) {
+                errorDiv.remove();
+            }
+        }, 5000);
     }
 
     function calculateDebtStrategy(debts, extraPayment, strategy, bonusPayments) {
-        const debtsCopy = debts.map(d => ({ ...d, remaining: d.balance }));
-        let totalInterest = 0;
-        let totalPaid = 0;
-        let month = 0;
-        const schedule = [];
+        try {
+            const debtsCopy = debts.map(d => ({ ...d, remaining: d.balance }));
+            let totalInterest = 0;
+            let totalPaid = 0;
+            let month = 0;
+            const schedule = [];
 
-        const bonusMap = {};
-        bonusPayments.forEach(bonus => {
-            bonusMap[bonus.month] = bonus.amount;
-        });
-
-        while (debtsCopy.some(d => d.remaining > 0.01) && month < 1000) {
-            month++;
-            
-            let monthlyPayment = 0;
-            let availableExtra = extraPayment + (bonusMap[month] || 0);
-
-            // Pay minimums first
-            debtsCopy.forEach(debt => {
-                if (debt.remaining > 0) {
-                    const monthlyRate = debt.rate / 100 / 12;
-                    const interestPayment = debt.remaining * monthlyRate;
-                    const principalPayment = Math.min(debt.minimum - interestPayment, debt.remaining);
-                    
-                    debt.remaining -= principalPayment;
-                    totalInterest += interestPayment;
-                    monthlyPayment += debt.minimum;
-                    
-                    if (debt.remaining < 0) debt.remaining = 0;
-                }
-            });
-
-            // Apply extra payment based on strategy
-            const activeDebts = debtsCopy.filter(d => d.remaining > 0);
-            if (activeDebts.length > 0 && availableExtra > 0) {
-                let targetDebt;
-                
-                if (strategy === 'avalanche') {
-                    targetDebt = activeDebts.reduce((highest, current) => 
-                        current.rate > highest.rate ? current : highest
-                    );
-                } else { // snowball
-                    targetDebt = activeDebts.reduce((smallest, current) => 
-                        current.remaining < smallest.remaining ? current : smallest
-                    );
-                }
-
-                const extraPrincipal = Math.min(availableExtra, targetDebt.remaining);
-                targetDebt.remaining -= extraPrincipal;
-                monthlyPayment += extraPrincipal;
+            const bonusMap = {};
+            if (bonusPayments && Array.isArray(bonusPayments)) {
+                bonusPayments.forEach(bonus => {
+                    if (bonus && bonus.month && bonus.amount) {
+                        bonusMap[bonus.month] = bonus.amount;
+                    }
+                });
             }
 
-            totalPaid += monthlyPayment;
+            while (debtsCopy.some(d => d.remaining > 0.01) && month < 1000) {
+                month++;
+                
+                let monthlyPayment = 0;
+                let availableExtra = extraPayment + (bonusMap[month] || 0);
 
-            schedule.push({
-                month,
-                payment: monthlyPayment,
-                debtsRemaining: debtsCopy.filter(d => d.remaining > 0).length,
-                totalBalance: debtsCopy.reduce((sum, d) => sum + d.remaining, 0)
-            });
+                // Pay minimums first
+                debtsCopy.forEach(debt => {
+                    if (debt.remaining > 0) {
+                        const monthlyRate = debt.rate / 100 / 12;
+                        const interestPayment = debt.remaining * monthlyRate;
+                        const principalPayment = Math.min(debt.minimum - interestPayment, debt.remaining);
+                        
+                        debt.remaining = Math.max(0, debt.remaining - principalPayment);
+                        totalInterest += interestPayment;
+                        monthlyPayment += debt.minimum;
+                    }
+                });
+
+                // Apply extra payment based on strategy
+                const activeDebts = debtsCopy.filter(d => d.remaining > 0);
+                if (activeDebts.length > 0 && availableExtra > 0) {
+                    let targetDebt;
+                    
+                    if (strategy === 'avalanche') {
+                        targetDebt = activeDebts.reduce((highest, current) => 
+                            current.rate > highest.rate ? current : highest
+                        );
+                    } else { // snowball
+                        targetDebt = activeDebts.reduce((smallest, current) => 
+                            current.remaining < smallest.remaining ? current : smallest
+                        );
+                    }
+
+                    const extraPrincipal = Math.min(availableExtra, targetDebt.remaining);
+                    targetDebt.remaining = Math.max(0, targetDebt.remaining - extraPrincipal);
+                    monthlyPayment += extraPrincipal;
+                }
+
+                totalPaid += monthlyPayment;
+
+                schedule.push({
+                    month,
+                    payment: monthlyPayment,
+                    debtsRemaining: debtsCopy.filter(d => d.remaining > 0).length,
+                    totalBalance: debtsCopy.reduce((sum, d) => sum + d.remaining, 0)
+                });
+            }
+
+            return {
+                months: month,
+                totalInterest: Math.round(totalInterest * 100) / 100,
+                totalPaid: Math.round(totalPaid * 100) / 100,
+                schedule
+            };
+        } catch (error) {
+            console.error('Error in calculateDebtStrategy:', error);
+            return null;
         }
-
-        return {
-            months: month,
-            totalInterest: Math.round(totalInterest * 100) / 100,
-            totalPaid: Math.round(totalPaid * 100) / 100,
-            schedule
-        };
     }
 
     // Display Functions
