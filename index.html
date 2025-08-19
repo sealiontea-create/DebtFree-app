@@ -675,9 +675,9 @@
                 <!-- Charts -->
                 <div class="card">
                     <div class="chart-tabs">
-                        <button class="chart-tab active" onclick="showChart('balance')">Balance</button>
-                        <button class="chart-tab" onclick="showChart('payments')">Payments</button>
-                        <button class="chart-tab" onclick="showChart('schedule')">Schedule</button>
+                        <button class="chart-tab active" onclick="showChart('balance'); event.preventDefault();">Balance</button>
+                        <button class="chart-tab" onclick="showChart('payments'); event.preventDefault();">Payments</button>
+                        <button class="chart-tab" onclick="showChart('schedule'); event.preventDefault();">Schedule</button>
                     </div>
                     <div class="chart-area">
                         <canvas id="balanceChart" style="display: block;"></canvas>
@@ -775,7 +775,5 @@
         renderDebts();
         updateCalculatorMode();
         loadFromStorage();
-        setupEventListeners();
-        checkInstallPrompt();
-        checkOnline
+        setupEventListeners
 ```
